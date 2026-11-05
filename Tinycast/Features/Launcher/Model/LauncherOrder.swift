@@ -8,6 +8,8 @@ enum LauncherOrder {
         let latin: SearchText
         /// Alternate titles and aliases compare against the text as typed.
         let typed: SearchText
+        /// The query as its keys read on QWERTY, for a name typed with another layout still on.
+        let qwerty: [SearchText]
         let term: String
 
         var isEmpty: Bool { typed.isEmpty }
@@ -16,6 +18,7 @@ enum LauncherOrder {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             latin = SearchText(trimmed, transliterated: true)
             typed = SearchText(trimmed, transliterated: false)
+            qwerty = ScriptRomanization.qwertyKeys(of: trimmed).map { SearchText($0, transliterated: false) }
             term = typed.string
         }
     }
@@ -136,34 +139,43 @@ enum LauncherOrder {
         let term: TermHit
 
         init?(profile: SearchProfile, signals: Signals, query: Query, sensitivity: SearchSensitivity) {
-            let latinLength = query.latin.units.count
             let typedLength = query.typed.units.count
             alias = signals.alias.map { Self.aliasHit($0, query.typed) } ?? .none
             isBoosted = signals.boostedTerms.contains(query.term)
-            let titleMatch = LauncherMatch.match(query.latin, in: profile.title)
-            var alternateTitles = profile.alternateTitles
-            if alias == .none, let text = signals.alias { alternateTitles.append(text) }
-            let alternates = alternateTitles.map { LauncherMatch.match(query.typed, in: $0) }
-            let subtitleMatch = profile.subtitle.flatMap { LauncherMatch.match(query.latin, in: $0) }
+            let readings = [query.latin] + query.qwerty
 
             func passes(_ outcome: LauncherMatch.Outcome?, _ length: Int) -> Bool {
                 outcome.map { sensitivity.accepts($0, queryLength: length) } ?? false
             }
-            let isMatching =
-                alias != .none || passes(titleMatch, latinLength)
-                || alternates.contains { passes($0, typedLength) } || passes(subtitleMatch, latinLength)
-                || profile.keywords.contains {
-                    passes(LauncherMatch.match(query.latin, in: $0), latinLength)
+            /// The reading that fits best, a passing one before any that does not.
+            func latinMatch(in target: SearchText) -> (outcome: LauncherMatch.Outcome, passes: Bool)? {
+                readings.compactMap { reading in
+                    LauncherMatch.match(reading, in: target).map {
+                        (outcome: $0, passes: passes($0, reading.units.count))
+                    }
                 }
+                .max { ($0.passes ? 1 : 0, $0.outcome.value) < ($1.passes ? 1 : 0, $1.outcome.value) }
+            }
+
+            let titleMatch = latinMatch(in: profile.title)
+            var alternateTitles = profile.alternateTitles
+            if alias == .none, let text = signals.alias { alternateTitles.append(text) }
+            let alternates = alternateTitles.map { LauncherMatch.match(query.typed, in: $0) }
+            let subtitleMatch = profile.subtitle.flatMap { latinMatch(in: $0) }
+
+            let isMatching =
+                alias != .none || titleMatch?.passes == true
+                || alternates.contains { passes($0, typedLength) } || subtitleMatch?.passes == true
+                || profile.keywords.contains { latinMatch(in: $0)?.passes == true }
             guard isMatching else { return nil }
 
-            titleExact = titleMatch == .exact || alternates.contains { $0 == .exact }
-            title = alternates.reduce(Self.value(titleMatch)) { max($0, Self.value($1)) }
+            titleExact = titleMatch?.outcome == .exact || alternates.contains { $0 == .exact }
+            title = alternates.reduce(Self.value(titleMatch?.outcome)) { max($0, Self.value($1)) }
             titlePrefix =
-                profile.title.units.starts(with: query.latin.units)
+                readings.contains { profile.title.units.starts(with: $0.units) }
                 || alternateTitles.contains { $0.units.starts(with: query.typed.units) }
-            subtitleExact = subtitleMatch == .exact
-            subtitle = Self.value(subtitleMatch)
+            subtitleExact = subtitleMatch?.outcome == .exact
+            subtitle = Self.value(subtitleMatch?.outcome)
             term = Self.termHit(signals.usage.searchTerms, query.latin.units)
         }
 

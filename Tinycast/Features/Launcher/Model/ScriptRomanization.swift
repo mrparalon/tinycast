@@ -28,6 +28,79 @@ enum ScriptRomanization {
         return folded.isEmpty || folded == FuzzyMatch.normalized(name) ? nil : folded
     }
 
+    /// What the keys under a query print on QWERTY, once per layout its letters fit:
+    /// `еудупкфь` was typed for `telegram`. Empty once a Latin letter shows it was typed on purpose.
+    static func qwertyKeys(of query: String) -> [String] {
+        let characters = Array(query.lowercased())
+        guard characters.contains(where: { $0.isLetter && !$0.isASCII }),
+            !characters.contains(where: { $0.isLetter && $0.isASCII })
+        else { return [] }
+        var readings: [String] = []
+        for table in layoutKeys {
+            guard let reading = reading(characters, on: table), !readings.contains(reading) else { continue }
+            readings.append(reading)
+        }
+        return readings
+    }
+
+    private static func reading(_ characters: [Character], on table: [Character: Character]) -> String? {
+        var result = ""
+        for character in characters {
+            if let key = table[character] {
+                result.append(key)
+            } else if character.isLetter {
+                return nil
+            } else {
+                result.append(character)
+            }
+        }
+        return result
+    }
+
+    /// Letter to the ANSI key under it, generated from the macOS layouts with UCKeyTranslate.
+    /// Layouts that never disagree on a letter share a table; Ukrainian and Ukrainian – PC do.
+    private static let layoutKeys: [[Character: Character]] = [
+        // Chuvash, Ingush, Kazakh, KildinSami, Russian
+        ("эбҍөюқӓәіӯңғӣүұӭжһӈхёъфисвуапршолдьтщӏзйкыегмцчня",
+         "',--.00233457899;==[\\]abcdefghijklmnoopqrstuvwxyz"),
+        // Mongolian-Cyrillic
+        ("пьевюдщкъймёбуөахшролтиүзфжыэгсцчня",
+         "',-./;=[]abcdefghijklmnopqrstuvwxyz"),
+        // Kyrgyz-Cyrillic, RussianWin, Tajik-Cyrillic, Ukrainian-PC
+        ("эєбғюжӯхъїёґфисвуапршолдьӣтщҳзйкыіҷегмцқчня",
+         "'',-.;=[]]``abcdefghijklmmnoopqrssstuvwwxyz"),
+        // Uzbek-Cyrillic
+        ("эбғюжҳхъёфисвуапршолдьтўзйкқегмцчня",
+         "',-.;=[]`abcdefghijklmnopqrstuvwxyz"),
+        // Georgian-QWERTY
+        ("აბჩცდეფგჰიჟჯკლმნოპქრღსშთტუვწჭხყზძ",
+         "abccdefghijjklmnopqrrssttuvwwxyzz"),
+        // Bulgarian
+        ("чрлбмцьѝфъаеожгстнвпхдзыияшкэуйщю",
+         "',./;[aabcdefghijklmnopqrstuvwxyz"),
+        // Macedonian
+        ("ќчшжѓѐѝабцдефгхијклмнопљрстувњџѕз",
+         "';[\\]``abcdefghijklmnopqrstuvwxyz"),
+        // Byelorussian, Ukrainian
+        ("эєбюжхёґїфісвуапршолдьтщўзйкиыегмцчня",
+         "'',.;[\\\\]abcdefghijklmnoopqrsstuvwxyz"),
+        // Tuvan, Yakut
+        ("эбюжһхёъҕөисвуапрголдьтшзйкыеңҥмүчня",
+         "',.;;[\\]]abcdefghijklmnopqrstuuvwxyz"),
+        // Russian-Phonetic
+        ("ьъюэжщабцдефгчийклмнопярстувшхыз",
+         "-=[\\]`abcdefghijklmnopqrstuvwxyz"),
+        // Bulgarian-Phonetic
+        ("шющчабцдефгхийклмнопярстужвьѝъз",
+         "[\\]`abcdefghijklmnopqrstuvwxxyz"),
+        // Serbian
+        ("ћчшжђабцдефгхијклмнопљрстувњџзѕ",
+         "';[\\]abcdefghijklmnopqrstuvwxyz"),
+        // Ukrainian-QWERTY
+        ("юєжьабцдефгчійклмнопярстувшхиз",
+         "[\\]`abcdefghijklmnopqrstuvwxyz")
+    ].map { letters, keys in Dictionary(uniqueKeysWithValues: zip(letters, keys)) }
+
     /// The first script with a rule of its own, kana before Han so a Japanese title routes right.
     static func script(of name: String) -> Script? {
         var hasHan = false

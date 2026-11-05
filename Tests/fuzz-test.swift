@@ -238,6 +238,19 @@ struct FuzzTest {
         check(
             "a later word of an alias finds its entry",
             rank("dark", [Item(name: "Safari"), appearance]) == ["Toggle System Appearance"])
+        let apps = [Item(name: "Telegram"), Item(name: "Slack"), Item(name: "Safari"), Item(name: "kitty")]
+        check(
+            "a name typed with the Russian layout on finds its entry",
+            first("еудупкфь", apps) == "Telegram", "got \(rank("еудупкфь", apps))")
+        check("…and so does its prefix", first("еуду", apps) == "Telegram", "got \(rank("еуду", apps))")
+        check("…in any case", first("ЫДФСЛ", apps) == "Slack", "got \(rank("ЫДФСЛ", apps))")
+        check("…while Cyrillic still reads as typed", first("телегра", apps) == "Telegram")
+        check("…on Ukrainian", first("идфсл", apps) == "Slack", "got \(rank("идфсл", apps))")
+        check("…on Ukrainian – PC", first("ідфсл", apps) == "Slack", "got \(rank("ідфсл", apps))")
+        check("…on Georgian", first("ტელეგრამ", apps) == "Telegram", "got \(rank("ტელეგრამ", apps))")
+        check(
+            "a mixed-script query never reads as keys",
+            ScriptRomanization.qwertyKeys(of: "teлеграм").isEmpty)
         check(
             "…ranked by its score, so a title prefix still wins",
             rank("dark", [appearance, Item(name: "Darkroom")]) == ["Darkroom", "Toggle System Appearance"])
